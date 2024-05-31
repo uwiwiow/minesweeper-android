@@ -182,8 +182,8 @@ int main( int argc, char *argv[] )
 #ifndef PLATFORM_ANDROID
     ChangeDirectory("assets");
 #endif
-    Image atlas = LoadImage("atlas.png");
-    Image cursorImg = LoadImage("pointer.png");
+    Image atlas = LoadImage("game/atlas.png");
+    Image cursorImg = LoadImage("game/pointer.png");
 
 #ifndef PLATFORM_ANDROID
     ChangeDirectory("..");
@@ -238,6 +238,13 @@ int main( int argc, char *argv[] )
             cursorRect.y += status.TILE;
         }
 
+        switch (GetGestureDetected()) {
+            case GESTURE_SWIPE_RIGHT: cursorRect.x += status.TILE; break;
+            case GESTURE_SWIPE_LEFT: cursorRect.x -= status.TILE; break;
+            case GESTURE_SWIPE_UP: cursorRect.y -= status.TILE; break;
+            case GESTURE_SWIPE_DOWN: cursorRect.y += status.TILE; break;
+        }
+
         // CURSOR DOESN'T GO OUTSIDE THE WINDOW
         if (cursorRect.x == status.WIDTH) {
             cursorRect.x = 0;
@@ -261,7 +268,7 @@ int main( int argc, char *argv[] )
 
 
         // GAMEPLAY
-        if (IsKeyPressed(KEY_O)) {
+        if (IsKeyPressed(KEY_O) || IsGestureDetected(GESTURE_PINCH_IN)) {
             if (status.STATE != defaultStatus.STATE) {
                 status.STATE = defaultStatus.STATE;
                 setVisibleTiles = false;
@@ -273,11 +280,11 @@ int main( int argc, char *argv[] )
             generateNumbers(board, &status);
         }
 
-        if (IsKeyPressed(KEY_P) || IsGestureDetected(GESTURE_TAP)) {
+        if (IsKeyPressed(KEY_P) || IsGestureDetected(GESTURE_PINCH_OUT)) {
             setVisibleTiles = !setVisibleTiles;
         }
 
-        if (IsKeyPressed(KEY_K)) {
+        if (IsKeyPressed(KEY_K) || IsGestureDetected(GESTURE_DOUBLETAP)) {
             iterationCounter = 0;
             if (status.STATE == START && status.FIRST_CELL != ANY) {
                 while (board[rectX][rectY].TYPE != status.FIRST_CELL) {
@@ -301,7 +308,7 @@ int main( int argc, char *argv[] )
             }
         }
 
-        if (IsKeyPressed(KEY_L)) {
+        if (IsKeyPressed(KEY_L) || (IsGestureDetected(GESTURE_HOLD) && GetGestureHoldDuration() > 500)) {
             if (status.STATE == PLAYING && (!board[rectX][rectY].VISIBLE || (setVisibleTiles && !board[rectX][rectY].VISIBLE))) {
                 board[rectX][rectY].MARK = (board[rectX][rectY].MARK + 1) % 3;
             } else {
