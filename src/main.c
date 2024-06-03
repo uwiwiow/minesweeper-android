@@ -184,10 +184,18 @@ int main( int argc, char *argv[] )
 #endif
     Image atlas = LoadImage("game/atlas.png");
     Image cursorImg = LoadImage("game/pointer.png");
-
+    Image aImg = LoadImage("buttons/A.png");
+    Image bImg = LoadImage("buttons/B.png");
 #ifndef PLATFORM_ANDROID
     ChangeDirectory("..");
 #endif
+
+    ImageResize(&aImg, aImg.width*2, aImg.height*2);
+    ImageResize(&bImg, bImg.width*2, bImg.height*2);
+    Texture aBtn = LoadTextureFromImage(aImg);
+    Texture bBtn = LoadTextureFromImage(bImg);
+    UnloadImage(aImg);
+    UnloadImage(bImg);
 
 
     ImageResize(&cursorImg, status.TILE, status.TILE);
@@ -217,58 +225,22 @@ int main( int argc, char *argv[] )
 
     // CURSOR RECT ON TILES
     int rectX, rectY;
+    Vector2 touchPosition = {0, 0};
 
     while (!WindowShouldClose()) {
 
+        touchPosition = GetTouchPosition(0);
 
-        // CURSOR MOVEMENT
-        if (IsKeyPressed(KEY_A)) {
-            cursorRect.x -= status.TILE;
+        if (IsGestureDetected(GESTURE_DRAG)) {
+            cursorRect.x = touchPosition.x - ( (int) touchPosition.x % status.TILE);
+            cursorRect.y = touchPosition.y - ( (int) touchPosition.y % status.TILE);
         }
 
-        if (IsKeyPressed(KEY_D)) {
-            cursorRect.x += status.TILE;
-        }
-
-        if (IsKeyPressed(KEY_W)) {
-            cursorRect.y -= status.TILE;
-        }
-
-        if (IsKeyPressed(KEY_S)) {
-            cursorRect.y += status.TILE;
-        }
-
-        switch (GetGestureDetected()) {
-            case GESTURE_SWIPE_RIGHT: cursorRect.x += status.TILE; break;
-            case GESTURE_SWIPE_LEFT: cursorRect.x -= status.TILE; break;
-            case GESTURE_SWIPE_UP: cursorRect.y -= status.TILE; break;
-            case GESTURE_SWIPE_DOWN: cursorRect.y += status.TILE; break;
-        }
-
-        // CURSOR DOESN'T GO OUTSIDE THE WINDOW
-        if (cursorRect.x == status.WIDTH) {
-            cursorRect.x = 0;
-        }
-
-        if (cursorRect.x == -status.TILE) {
-            cursorRect.x = status.WIDTH - status.TILE;
-        }
-
-        if (cursorRect.y == status.HEIGHT) {
-            cursorRect.y = 0;
-        }
-
-        if (cursorRect.y == -status.TILE) {
-            cursorRect.y = status.HEIGHT - status.TILE;
-        }
-
-        rectX = cursorRect.x/status.TILE;
-        rectY = cursorRect.y/status.TILE;
-
-
+        rectX = cursorRect.x / status.TILE;
+        rectY = cursorRect.y / status.TILE;
 
         // GAMEPLAY
-        if (IsKeyPressed(KEY_O) || IsGestureDetected(GESTURE_PINCH_IN)) {
+        if (IsGestureDetected(GESTURE_PINCH_IN)) {
             if (status.STATE != defaultStatus.STATE) {
                 status.STATE = defaultStatus.STATE;
                 setVisibleTiles = false;
@@ -280,11 +252,11 @@ int main( int argc, char *argv[] )
             generateNumbers(board, &status);
         }
 
-        if (IsKeyPressed(KEY_P) || IsGestureDetected(GESTURE_PINCH_OUT)) {
+        if (IsGestureDetected(GESTURE_PINCH_OUT)) {
             setVisibleTiles = !setVisibleTiles;
         }
 
-        if (IsKeyPressed(KEY_K) || IsGestureDetected(GESTURE_DOUBLETAP)) {
+        if (IsGestureDetected(GESTURE_DOUBLETAP)) {
             iterationCounter = 0;
             if (status.STATE == START && status.FIRST_CELL != ANY) {
                 while (board[rectX][rectY].TYPE != status.FIRST_CELL) {
@@ -308,7 +280,7 @@ int main( int argc, char *argv[] )
             }
         }
 
-        if (IsKeyPressed(KEY_L) || (IsGestureDetected(GESTURE_HOLD) && GetGestureHoldDuration() > 500)) {
+        if (IsGestureDetected(GESTURE_HOLD) && GetGestureHoldDuration() > 500) {
             if (status.STATE == PLAYING && (!board[rectX][rectY].VISIBLE || (setVisibleTiles && !board[rectX][rectY].VISIBLE))) {
                 board[rectX][rectY].MARK = (board[rectX][rectY].MARK + 1) % 3;
             } else {
@@ -372,10 +344,19 @@ int main( int argc, char *argv[] )
         // RENDER CURSOR
         DrawTextureV(cursor, cursorRect, WHITE);
 
-
+        DrawTextureV(aBtn, (Vector2) {status.WIDTH/4*3 - aBtn.width - 20, status.HEIGHT/4*2.2f}, WHITE);
+        DrawTextureV(bBtn, (Vector2) {status.WIDTH/4*3, status.HEIGHT/4*2.2f}, WHITE);
 
         EndDrawing();
 
+    }
+
+    UnloadTexture(aBtn);
+    UnloadTexture(bBtn);
+    UnloadTexture(cursor);
+
+    for (int i = 0; i < 16; i++) {
+        UnloadTexture(sprites[i]);
     }
 
     CloseWindow();          // Close window and OpenGL context
