@@ -147,17 +147,17 @@ int main( int argc, char *argv[] )
     srand((unsigned)time(&t));
 
     Status status = {
-            .TILE = 40,
-            .W_TILES = 32,
-            .H_TILES = 16,
-            .BOMBS = 99,
+            .TILE = 108,
+            .W_TILES = 10,
+            .H_TILES = 18,
+            .BOMBS = 35,
             .STATE = START,
             .VISIBLE_TILES = 0,
             .FIRST_CELL = BLANK_TILE,
             .MAX_ITERATIONS = 10000
     };
-    status.WIDTH = status.W_TILES * status.TILE;
-    status.HEIGHT = status.H_TILES * status.TILE;
+    status.WIDTH = 1080;
+    status.HEIGHT = 2292;
 
     unsigned int iterationCounter = 0;
 
@@ -186,16 +186,23 @@ int main( int argc, char *argv[] )
     Image cursorImg = LoadImage("game/pointer.png");
     Image aImg = LoadImage("buttons/A.png");
     Image bImg = LoadImage("buttons/B.png");
+    Image rImg = LoadImage("buttons/R.png");
 #ifndef PLATFORM_ANDROID
     ChangeDirectory("..");
 #endif
 
     ImageResize(&aImg, aImg.width*2, aImg.height*2);
     ImageResize(&bImg, bImg.width*2, bImg.height*2);
+    ImageResize(&rImg, rImg.width*2, rImg.height*2);
     Texture aBtn = LoadTextureFromImage(aImg);
     Texture bBtn = LoadTextureFromImage(bImg);
+    Texture rBtn = LoadTextureFromImage(rImg);
     UnloadImage(aImg);
     UnloadImage(bImg);
+    UnloadImage(rImg);
+    Rectangle aBtnLimit = {status.WIDTH/3 - aBtn.width - 20, status.TILE * status.H_TILES + 10, aBtn.width, aBtn.height};
+    Rectangle bBtnLimit = {status.WIDTH/3*2 - bBtn.width - 20, status.TILE * status.H_TILES + 10, bBtn.width, bBtn.height};
+    Rectangle rBtnLimit = {status.WIDTH - rBtn.width - 20, status.TILE * status.H_TILES + 10, rBtn.width, rBtn.height};
 
 
     ImageResize(&cursorImg, status.TILE, status.TILE);
@@ -226,12 +233,15 @@ int main( int argc, char *argv[] )
     // CURSOR RECT ON TILES
     int rectX, rectY;
     Vector2 touchPosition = {0, 0};
+    Vector2 lastTouchPosition = {0, 0};
+    Rectangle touchLimit = {0, 0, status.TILE * status.W_TILES, status.TILE * status.H_TILES};
 
     while (!WindowShouldClose()) {
 
+        lastTouchPosition = touchPosition;
         touchPosition = GetTouchPosition(0);
 
-        if (IsGestureDetected(GESTURE_DRAG)) {
+        if (CheckCollisionPointRec(touchPosition, touchLimit) && (lastTouchPosition.x != touchPosition.x || lastTouchPosition.y != touchPosition.y)) {
             cursorRect.x = touchPosition.x - ( (int) touchPosition.x % status.TILE);
             cursorRect.y = touchPosition.y - ( (int) touchPosition.y % status.TILE);
         }
@@ -240,7 +250,7 @@ int main( int argc, char *argv[] )
         rectY = cursorRect.y / status.TILE;
 
         // GAMEPLAY
-        if (IsGestureDetected(GESTURE_PINCH_IN)) {
+        if (CheckCollisionPointRec(touchPosition, rBtnLimit) && (lastTouchPosition.x != touchPosition.x || lastTouchPosition.y != touchPosition.y)) {
             if (status.STATE != defaultStatus.STATE) {
                 status.STATE = defaultStatus.STATE;
                 setVisibleTiles = false;
@@ -256,7 +266,7 @@ int main( int argc, char *argv[] )
             setVisibleTiles = !setVisibleTiles;
         }
 
-        if (IsGestureDetected(GESTURE_DOUBLETAP)) {
+        if ((CheckCollisionPointRec(touchPosition, aBtnLimit) && (lastTouchPosition.x != touchPosition.x || lastTouchPosition.y != touchPosition.y)) || (CheckCollisionPointRec(touchPosition, touchLimit) && (IsGestureDetected(GESTURE_DOUBLETAP)))) {
             iterationCounter = 0;
             if (status.STATE == START && status.FIRST_CELL != ANY) {
                 while (board[rectX][rectY].TYPE != status.FIRST_CELL) {
@@ -280,7 +290,7 @@ int main( int argc, char *argv[] )
             }
         }
 
-        if (IsGestureDetected(GESTURE_HOLD) && GetGestureHoldDuration() > 500) {
+        if (CheckCollisionPointRec(touchPosition, bBtnLimit) && (lastTouchPosition.x != touchPosition.x || lastTouchPosition.y != touchPosition.y)) {
             if (status.STATE == PLAYING && (!board[rectX][rectY].VISIBLE || (setVisibleTiles && !board[rectX][rectY].VISIBLE))) {
                 board[rectX][rectY].MARK = (board[rectX][rectY].MARK + 1) % 3;
             } else {
@@ -344,8 +354,9 @@ int main( int argc, char *argv[] )
         // RENDER CURSOR
         DrawTextureV(cursor, cursorRect, WHITE);
 
-        DrawTextureV(aBtn, (Vector2) {status.WIDTH/4*3 - aBtn.width - 20, status.HEIGHT/4*2.2f}, WHITE);
-        DrawTextureV(bBtn, (Vector2) {status.WIDTH/4*3, status.HEIGHT/4*2.2f}, WHITE);
+        DrawTextureV(aBtn, (Vector2) {aBtnLimit.x, aBtnLimit.y}, WHITE);
+        DrawTextureV(bBtn, (Vector2) {bBtnLimit.x, bBtnLimit.y}, WHITE);
+        DrawTextureV(rBtn, (Vector2) {rBtnLimit.x, rBtnLimit.y}, WHITE);
 
         EndDrawing();
 
