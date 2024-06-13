@@ -1,7 +1,16 @@
 #include <stdbool.h>
 #include "raylib.h"
 #include <stdlib.h>
-#include <time.h>
+#include <stdio.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <netdb.h>
+#include <unistd.h>
+
+#define handle_error(msg) \
+           do { perror(msg); } while (0);
+
+#define MAX_CLIENTS 100
 
 typedef enum State {
     START,
@@ -43,6 +52,21 @@ typedef struct Status {
     CellType FIRST_CELL;
     unsigned int MAX_ITERATIONS;
 } Status;
+
+typedef enum CellAction {
+    NONE = -1,
+    OPENED,
+    CLEAR,
+    FLAGGED,
+    QUESTIONED
+} CellAction;
+
+typedef struct Packet {
+    Vector2 pos_cursor;
+    CellAction action_tile;
+    unsigned int seed;
+    State state;
+} Packet;
 
 void initializeBoard(TILE **board, int width, int height) {
     for (int i = 0; i < width; i++) {
@@ -142,9 +166,42 @@ void revealEmptyCells(TILE **board, int x, int y, Status *status) {
 
 int main( int argc, char *argv[] )
 {
+    SetTraceLogLevel(LOG_WARNING);
 
-    time_t t;
-    srand((unsigned)time(&t));
+    int socket_fd;
+    struct addrinfo  *result, *rp;
+
+    struct addrinfo hints = {
+            .ai_family = AF_INET,
+            .ai_socktype = SOCK_STREAM,
+            .ai_protocol = 0,
+            .ai_flags = 0,
+    };
+
+    if (getaddrinfo("127.0.0.1", "12345", &hints, &result) < 0)
+        handle_error("getaddrinfo")
+
+    for (rp = result; rp != NULL; rp = rp->ai_next) {
+        socket_fd = socket(rp->ai_family, rp->ai_socktype,
+                           rp->ai_protocol);
+        if (socket_fd == -1)
+            continue;
+
+        if (connect(socket_fd, rp->ai_addr, rp->ai_addrlen) != -1)
+            break;                  /* Success */
+
+        close(socket_fd);
+    }
+
+    freeaddrinfo(result);           /* No longer needed */
+
+    if (rp == NULL) {               /* No address succeeded */
+        fprintf(stderr, "Could not connect\n");
+        exit(EXIT_FAILURE);
+    }
+
+    unsigned int seed = 0;
+    srand(seed);
 
     Status status = {
             .TILE = 108,
@@ -236,6 +293,21 @@ int main( int argc, char *argv[] )
     Vector2 lastTouchPosition = {0, 0};
     Rectangle touchLimit = {0, 0, status.TILE * status.W_TILES, status.TILE * status.H_TILES};
 
+
+    Vector2 cursors[MAX_CLIENTS];
+
+    Packet packet = {
+            cursorRect,
+            NONE
+    };
+    Packet allPackets[MAX_CLIENTS];
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        allPackets[i] = (Packet) {
+                cursorRect,
+                NONE
+        };
+    }
+
     while (!WindowShouldClose()) {
 
         lastTouchPosition = touchPosition;
@@ -248,6 +320,9 @@ int main( int argc, char *argv[] )
 
         rectX = cursorRect.x / status.TILE;
         rectY = cursorRect.y / status.TILE;
+
+        packet.pos_cursor = cursorRect;
+        packet.action_tile = NONE;
 
         // GAMEPLAY
         if (CheckCollisionPointRec(touchPosition, rBtnLimit) && (lastTouchPosition.x != touchPosition.x || lastTouchPosition.y != touchPosition.y)) {
@@ -287,19 +362,97 @@ int main( int argc, char *argv[] )
             }
             if (board[rectX][rectY].MARK != CELL_FLAGGED && (status.STATE == START || status.STATE == PLAYING)) {
                 revealEmptyCells(board, rectX, rectY, &status);
+                packet.action_tile = OPENED;
             }
         }
 
         if (CheckCollisionPointRec(touchPosition, bBtnLimit) && (lastTouchPosition.x != touchPosition.x || lastTouchPosition.y != touchPosition.y)) {
             if (status.STATE == PLAYING && (!board[rectX][rectY].VISIBLE || (setVisibleTiles && !board[rectX][rectY].VISIBLE))) {
                 board[rectX][rectY].MARK = (board[rectX][rectY].MARK + 1) % 3;
+                packet.action_tile = (board[rectX][rectY].MARK) + 1;
             } else {
                 board[rectX][rectY].MARK = CELL_CLEARED;
             }
         }
 
 
+        packet.state = status.STATE;
 
+
+        if (send(socket_fd, &packet, sizeof(packet), 0) == -1)
+            handle_error("send")
+
+        if (packet.action_tile >= 0 ) {
+            printf("Sent Packet: Cursor(%f, %f),Action(%d)\n",
+                   packet.pos_cursor.x, packet.pos_cursor.y, packet.action_tile);
+        }
+
+        ssize_t nbytes_read = recv(socket_fd, allPackets, sizeof(allPackets), 0);
+        if (nbytes_read == -1)
+            handle_error("recv");
+
+        int num_packets_received = nbytes_read / sizeof(Packet);
+//        printf("Received %d Packets from server:\n", num_packets_received);
+        for (int i = 0; i < num_packets_received; i++) {
+            if (allPackets[i].action_tile != -1 ) {
+                printf("Packet %d: Cursor(%f, %f),Action(%d)\n",
+                       i, allPackets[i].pos_cursor.x, allPackets[i].pos_cursor.y, allPackets[i].action_tile);
+            }
+
+            if (allPackets[i].seed != seed) {
+                seed = allPackets[i].seed;
+                printf("seed %du\n", seed);
+                srand(seed);
+                if (status.STATE != defaultStatus.STATE) {
+                    status.STATE = defaultStatus.STATE;
+                    setVisibleTiles = false;
+                }
+                status.BOMBS = defaultStatus.BOMBS;
+                status.VISIBLE_TILES = defaultStatus.VISIBLE_TILES;
+                initializeBoard(board, status.W_TILES, status.H_TILES);
+                generateBombs(board, status.BOMBS, status);
+                generateNumbers(board, &status);
+            }
+
+            int pkRectX = allPackets[i].pos_cursor.x/status.TILE;
+            int pkRectY = allPackets[i].pos_cursor.y/status.TILE;
+
+            switch (allPackets[i].action_tile) {
+                case NONE:
+                    break;
+                case OPENED: {
+                    iterationCounter = 0;
+                    if (status.STATE == START && status.FIRST_CELL != ANY) {
+                        while (board[pkRectX][pkRectY].TYPE != status.FIRST_CELL) {
+                            status.BOMBS = defaultStatus.BOMBS;
+                            status.VISIBLE_TILES = defaultStatus.VISIBLE_TILES;
+                            initializeBoard(board, status.W_TILES, status.H_TILES);
+                            generateBombs(board, status.BOMBS, status);
+                            generateNumbers(board, &status);
+
+                            iterationCounter++;
+                            if (iterationCounter > status.MAX_ITERATIONS) {
+                                CloseWindow();
+                                break;
+                            }
+
+                        }
+                        status.STATE = PLAYING;
+                    }
+                    if (board[rectX][rectY].MARK != CELL_FLAGGED && (status.STATE == START || status.STATE == PLAYING)) {
+                        revealEmptyCells(board, pkRectX, pkRectY, &status);
+                    }
+                }
+                    break;
+                case CLEAR: board[pkRectX][pkRectY].MARK = CELL_CLEARED;
+                    break;
+                case FLAGGED: board[pkRectX][pkRectY].MARK = CELL_FLAGGED;
+                    break;
+                case QUESTIONED: board[pkRectX][pkRectY].MARK = CELL_QUESTIONED;
+                    break;
+            }
+
+        }
 
         BeginDrawing();
 
@@ -352,7 +505,9 @@ int main( int argc, char *argv[] )
         }
 
         // RENDER CURSOR
-        DrawTextureV(cursor, cursorRect, WHITE);
+        for (int p = 0; p < num_packets_received; p++) {
+            DrawTextureV(cursor, allPackets[p].pos_cursor, WHITE);
+        }
 
         DrawTextureV(aBtn, (Vector2) {aBtnLimit.x, aBtnLimit.y}, WHITE);
         DrawTextureV(bBtn, (Vector2) {bBtnLimit.x, bBtnLimit.y}, WHITE);
